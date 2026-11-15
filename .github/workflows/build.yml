@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Setup Java
@@ -28,19 +28,35 @@ jobs:
         run: |
           unzip -q MYRA_JARVIS_OnePack.zip -d extracted
 
-      - name: Find Project
+      - name: Find Android Project
         run: |
+          echo "===== PROJECT FILES ====="
           find extracted -name gradlew -type f
+
+      - name: Show AppDetector Source
+        run: |
+          PROJECT=$(dirname "$(find extracted -name gradlew -type f | head -1)")
+          FILE="$PROJECT/app/src/main/java/com/myra/assistant/automation/AppDetector.kt"
+
+          if [ ! -f "$FILE" ]; then
+            echo "ERROR: AppDetector.kt not found"
+            exit 1
+          fi
+
+          echo "===== AppDetector.kt lines 155-190 ====="
+          nl -ba "$FILE" | sed -n '155,190p'
 
       - name: Build APK
         run: |
           PROJECT=$(dirname "$(find extracted -name gradlew -type f | head -1)")
-          chmod +x "$PROJECT/gradlew"
           cd "$PROJECT"
-          ./gradlew --no-daemon assembleDebug
+          chmod +x gradlew
+          ./gradlew assembleDebug
 
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: MYRA-debug-apk
           path: extracted/**/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
