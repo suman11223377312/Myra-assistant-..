@@ -23,9 +23,57 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Extract MYRA Project
+      - name: Extract Project
+        run: unzip -q MYRA_JARVIS_OnePack.zip -d extracted
+
+      - name: Fix Kotlin AppDetector
         run: |
-          unzip -q MYRA_JARVIS_OnePack.zip -d extracted
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("extracted/MYRA Ai/app/src/main/java/com/myra/assistant/automation/AppDetector.kt")
+          s = p.read_text()
+
+          start = s.index("    fun findAppByKeywords(")
+          end = s.index("    /**", start)
+
+          replacement = '''    fun findAppByKeywords(
+          service: AccessibilityService,
+          keywords: List<String>
+      ): InstalledApp? {
+          val apps: List<InstalledApp> =
+              getLaunchableApps(service, includeSystem = true)
+
+          val normalizedKeywords: List<String> =
+              keywords.map { word -> normalizeName(word) }
+
+          return apps
+              .map { app: InstalledApp ->
+                  val label = normalizeName(app.label)
+                  val pkg = normalizeName(app.packageName)
+
+                  val score: Int = normalizedKeywords.fold(0) {
+                      total: Int, keyword: String ->
+                      total + when {
+                          label.contains(keyword) -> 30
+                          pkg.contains(keyword) -> 20
+                          else -> 0
+                      }
+                  }
+
+                  Pair(app, score)
+              }
+              .filter { pair -> pair.second > 0 }
+              .sortedByDescending { pair -> pair.second }
+              .firstOrNull()
+              ?.first
+      }
+
+      '''
+
+          p.write_text(s[:start] + replacement + s[end:])
+          print("AppDetector fixed")
+          PY
 
       - name: Build APK
         run: |
@@ -38,4 +86,3 @@ jobs:
         with:
           name: MYRA-debug-apk
           path: extracted/MYRA Ai/app/build/outputs/apk/debug/app-debug.apk
-          
