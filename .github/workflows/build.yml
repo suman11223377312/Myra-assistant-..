@@ -1,112 +1,54 @@
 
-name: Build MYRA APK
-
-on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-
-permissions:
-  contents: read
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Extract ZIP
-        run: |
-          unzip -q MYRA_JARVIS_OnePack.zip -d extracted
-
-      - name: Find Project
-        run: |
-          PROJECT=$(dirname "$(find extracted -name gradlew -type f | head -1)")
-          echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
-          echo "Project: $PROJECT"
-
       - name: Fix AppDetector Kotlin Code
         run: |
           FILE="$PROJECT/app/src/main/java/com/myra/assistant/automation/AppDetector.kt"
 
           python3 - "$FILE" <<'PY'
           import sys
+          import re
           from pathlib import Path
 
           path = Path(sys.argv[1])
           source = path.read_text()
 
-          old = """        return apps
-                    .map { app ->
-                        val label = normalizeName(app.label)
-                        val pkg = normalizeName(app.packageName)
-                        val score = normalizedKeywords.sumOf { keyword ->
-                            when {
-                                label.contains(keyword) -> 30
-                                pkg.contains(keyword) -> 20
-                                else -> 0
-                            }
-                        }
-                        app to score
-                    }
-                    .filter { it.second > 0 }
-                    .sortedByDescending { it.second }
-                    .firstOrNull()
-                    ?.first"""
+          pattern = r'    fun findAppByKeywords\(\s*service: AccessibilityService,\s*keywords: List<String>\s*\): InstalledApp\? \{.*?\n    \}'
 
-          new = """        val scoredApps: List<Pair<InstalledApp, Int>> = apps.map { app ->
-                    val label = normalizeName(app.label)
-                    val pkg = normalizeName(app.packageName)
+          replacement = """    fun findAppByKeywords(
+          service: AccessibilityService,
+          keywords: List<String>
+          ): InstalledApp? {
+              val apps = getLaunchableApps(service, includeSystem = true)
+              val normalizedKeywords = keywords.map { normalizeName(it) }
 
-                    var score: Int = 0
-                    for (keyword in normalizedKeywords) {
-                        score += when {
-                            label.contains(keyword) -> 30
-                            pkg.contains(keyword) -> 20
-                            else -> 0
-                        }
-                    }
-                    Pair(app, score)
-                }
+              val scoredApps: List<Pair<InstalledApp, Int>> = apps.map { app ->
+                  val label = normalizeName(app.label)
+                  val pkg = normalizeName(app.packageName)
+                  var score = 0
 
-                return scoredApps
-                    .filter { pair -> pair.second > 0 }
-                    .sortedByDescending { pair -> pair.second }
-                    .firstOrNull()
-                    ?.first"""
+                  for (keyword in normalizedKeywords) {
+                      score += when {
+                          label.contains(keyword) -> 30
+                          pkg.contains(keyword) -> 20
+                          else -> 0
+                      }
+                  }
 
-          if old not in source:
-              print("Expected code block not found. No source changes made.")
+                  Pair(app, score)
+              }
+
+              return scoredApps
+                  .filter { pair -> pair.second > 0 }
+                  .sortedByDescending { pair -> pair.second }
+                  .firstOrNull()
+                  ?.first
+          }"""
+
+          updated, count = re.subn(pattern, lambda m: replacement, source, count=1, flags=re.S)
+
+          if count != 1:
+              print("Could not safely locate findAppByKeywords function.")
               sys.exit(1)
 
-          path.write_text(source.replace(old, new, 1))
-          print("AppDetector.kt patched successfully.")
+          path.write_text(updated)
+          print("findAppByKeywords fixed successfully.")
           PY
-
-      - name: Verify Patched Code
-        run: |
-          sed -n '163,195p' "$PROJECT/app/src/main/java/com/myra/assistant/automation/AppDetector.kt"
-
-      - name: Grant Permission
-        run: chmod +x "$PROJECT/gradlew"
-
-      - name: Build APK
-        run: |
-          cd "$PROJECT"
-          ./gradlew assembleDebug --stacktrace
-
-      - name: Upload APK
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: MYRA-JARVIS-APK
-          path: extracted/**/app/build/outputs/apk/debug/app-debug.apk
