@@ -31,10 +31,17 @@ jobs:
       - name: Find Android Project
         run: |
           PROJECT=$(dirname "$(find extracted -name gradlew -type f | head -1)")
-          if [ -z "$PROJECT" ] || [ ! -f "$PROJECT/app/src/main/java/com/myra/assistant/automation/AppDetector.kt" ]; then
-            echo "Android project or AppDetector.kt not found"
+
+          if [ -z "$PROJECT" ]; then
+            echo "Android project not found"
             exit 1
           fi
+
+          if [ ! -f "$PROJECT/app/src/main/java/com/myra/assistant/automation/AppDetector.kt" ]; then
+            echo "AppDetector.kt not found"
+            exit 1
+          fi
+
           echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
           echo "Project found: $PROJECT"
 
@@ -91,12 +98,26 @@ jobs:
           )
 
           if count != 1:
-              print("Could not safely locate findAppByKeywords.")
+              print("Could not safely locate findAppByKeywords")
               sys.exit(1)
 
           path.write_text(updated)
-          print("AppDetector.kt fixed successfully.")
+          print("AppDetector.kt fixed successfully")
           PY
+
+      - name: Inspect MYRA Features
+        run: |
+          echo "===== YOUTUBE AND SPOTIFY ====="
+          grep -RniE -C 3 "youtube|spotify|launchApp|launchIntent" "$PROJECT/app/src/main" | head -150 || true
+
+          echo "===== MICROPHONE AND SPEAKING ====="
+          grep -RniE -C 3 "microphone|AudioRecord|stopSpeaking|TextToSpeech|MediaPlayer" "$PROJECT/app/src/main" | head -150 || true
+
+          echo "===== COMMAND HANDLER ====="
+          grep -RniE -C 3 "command|AccessibilityService|startActivity" "$PROJECT/app/src/main/java" | head -150 || true
+
+          echo "===== ANDROID MANIFEST ====="
+          cat "$PROJECT/app/src/main/AndroidManifest.xml"
 
       - name: Verify Kotlin Code
         run: |
