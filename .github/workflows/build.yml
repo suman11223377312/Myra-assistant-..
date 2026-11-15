@@ -4,7 +4,8 @@ name: Build MYRA APK
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -17,73 +18,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Extract Project
-        run: unzip -q MYRA_JARVIS_OnePack.zip -d extracted
-
-      - name: Fix Kotlin AppDetector
+      - name: Extract ZIP
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
+          unzip -q MYRA_JARVIS_OnePack.zip -d extracted
 
-          p = Path("extracted/MYRA Ai/app/src/main/java/com/myra/assistant/automation/AppDetector.kt")
-          s = p.read_text()
-
-          start = s.index("    fun findAppByKeywords(")
-          end = s.index("    /**", start)
-
-          replacement = '''    fun findAppByKeywords(
-          service: AccessibilityService,
-          keywords: List<String>
-      ): InstalledApp? {
-          val apps: List<InstalledApp> =
-              getLaunchableApps(service, includeSystem = true)
-
-          val normalizedKeywords: List<String> =
-              keywords.map { word -> normalizeName(word) }
-
-          return apps
-              .map { app: InstalledApp ->
-                  val label = normalizeName(app.label)
-                  val pkg = normalizeName(app.packageName)
-
-                  val score: Int = normalizedKeywords.fold(0) {
-                      total: Int, keyword: String ->
-                      total + when {
-                          label.contains(keyword) -> 30
-                          pkg.contains(keyword) -> 20
-                          else -> 0
-                      }
-                  }
-
-                  Pair(app, score)
-              }
-              .filter { pair -> pair.second > 0 }
-              .sortedByDescending { pair -> pair.second }
-              .firstOrNull()
-              ?.first
-      }
-
-      '''
-
-          p.write_text(s[:start] + replacement + s[end:])
-          print("AppDetector fixed")
-          PY
+      - name: Find Project
+        run: |
+          find extracted -name gradlew -type f
 
       - name: Build APK
         run: |
-          cd "extracted/MYRA Ai"
-          chmod +x gradlew
+          PROJECT=$(dirname "$(find extracted -name gradlew -type f | head -1)")
+          chmod +x "$PROJECT/gradlew"
+          cd "$PROJECT"
           ./gradlew --no-daemon assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: MYRA-debug-apk
-          path: extracted/MYRA Ai/app/build/outputs/apk/debug/app-debug.apk
-          
+          path: extracted/**/app/build/outputs/apk/debug/app-debug.apk
